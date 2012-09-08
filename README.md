@@ -1,10 +1,13 @@
-Description
------------
+What's Hot on Twitter
+--------------------
 
 Twitter produces daily an incredible amount of real-time information, but lacks of an effective tool 
 to explore which topics are being discussed by users with similar interests. 
 This tool uses an augmented network of Twitter's following users to build a personalized, 
 dynamic and interactive list of hot topics.
+
+If you have a Twitter account, you can access What's Hot on Twitter in this URL:
+http://whatshot.panisson.com
 
 Dependencies
 ------------
