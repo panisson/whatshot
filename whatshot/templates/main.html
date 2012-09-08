@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<head>
+
+    <title>What's hot on Twitter</title>
+<meta charset="utf-8">
+<script src="http://d3js.org/d3.v2.min.js?2.9.3"></script>
+<script src="/static/trackbar.js"></script>
+<link rel="stylesheet" href="https://si0.twimg.com/a/1344996845/t1/css/t1_core.bundle.css" type="text/css" media="screen" />
+<link rel="stylesheet" href="/static/main.css" type="text/css"/>
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+    <link rel="apple-touch-icon-precomposed" sizes="144x144" href="/static/ico/apple-touch-icon-144-precomposed.png">
+    <link rel="apple-touch-icon-precomposed" sizes="114x114" href="/static/ico/apple-touch-icon-114-precomposed.png">
+    <link rel="apple-touch-icon-precomposed" sizes="72x72" href="/static/ico/apple-touch-icon-72-precomposed.png">
+    <link rel="apple-touch-icon-precomposed" href="/static/ico/apple-touch-icon-57-precomposed.png">
+    
+</head>
+
+<body class="t1  logged-in front-random-image-city-balcony">
+
+<div id="doc" class="route-home">
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse" data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <div class="brand" href="/">What's hot on Twitter</div>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li{%if request.url_rule.endpoint == 'index'%} class="active"{% endif %}>
+                <a href="{%if request.url_rule.endpoint == 'index'%}#{% else %}{{url_for('index') }}{% endif %}">Home</a></li>
+              <li{%if request.url_rule.endpoint == 'about'%} class="active"{% endif %}>
+                <a href="{{url_for('about') }}">About</a></li>
+              <li><a href="{{url_for('logout') }}">Logout</a></li>
+            </ul>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+<div id="container">
+
+<div id="tweets_container">
+
+<div class="content-header js-stream-header">
+    <div class="header-inner">
+        <h2>
+            <span class="content-header-buttons js-header-button-container"></span>
+            <span class="js-stream-title" id="title">What's Hot on Twitter (connecting...)</span>&nbsp;
+            <small class="view-toggler js-view-toggler"></small>
+        </h2>
+    </div>
+</div>
+
+{% include "status_template.html" %}
+
+<div id="tweets"></div>
+
+</div>
+
+<div id="trackbarHolder"></div>
+
+  <div id="graph-layout">
+  </div>
+
+  <div id="credits">coded by <a href="http://www.di.unito.it/~panisson">Andr&eacute; Panisson</a>, 
+  using <a href="http://mbostock.github.com/d3/">d3.js</a>, 
+  <a href="http://flask.pocoo.org/">Flask</a> and 
+  <a href="http://en.wikipedia.org/wiki/WebSocket">WebSockets</a></div>
+  </div>
+
+</div>
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+    <script src="/static/js/jquery.js"></script>
+    <script src="/static/js/bootstrap-transition.js"></script>
+    <script src="/static/js/bootstrap-alert.js"></script>
+    <script src="/static/js/bootstrap-modal.js"></script>
+    <script src="/static/js/bootstrap-dropdown.js"></script>
+    <script src="/static/js/bootstrap-scrollspy.js"></script>
+    <script src="/static/js/bootstrap-tab.js"></script>
+    <script src="/static/js/bootstrap-tooltip.js"></script>
+    <script src="/static/js/bootstrap-popover.js"></script>
+    <script src="/static/js/bootstrap-button.js"></script>
+    <script src="/static/js/bootstrap-collapse.js"></script>
+    <script src="/static/js/bootstrap-carousel.js"></script>
+    <script src="/static/js/bootstrap-typeahead.js"></script>
+
+<script>
+
+var screen_name = "{{session['screen_name']}}";
+
+var tweet = d3.select("#tweet_template")
+var tweet_html = tweet.html();
+tweet.remove();
+
+var nrTopics = 10;
+
+/*********************************
+    hashtag manager
+*********************************/
+
+function HashtagManager() {
+    this.selected = false;
+    
+    this.click = function(hashtag) {
+        if (!this.selected) {
+            this.selected = hashtag;
+        }
+        else if (this.selected && this.selected != hashtag) {
+            this.selected = false;
+            dirty = true;
+            reload_tweets();
+            this.selected = hashtag;
+        }
+        else {
+            this.selected = false;
+        }
+        
+        show_tweets(hashtag);
+        svg.selectAll("circle").style("fill-opacity", function(d) {return (htManager.selected && d.name==htManager.selected.hashtag) ? 0.3 : 0.15});
+    }
+    
+    this.mouseover = function(hashtag) {
+        if (this.selected) return;
+        show_tweets(hashtag);
+    }
+    
+    this.mouseout = function(hashtag) {
+        if (this.selected) return;
+        this.selected = false;
+        dirty = true;
+        reload_tweets();
+    }
+
+}
+
+var htManager = new HashtagManager();
+
+
+/*********************************
+    trackbar
+*********************************/
+function trackBarChange(val)
+{
+  newNrTopics = Math.round(val);
+  if (newNrTopics != nrTopics) {
+      nrTopics = newNrTopics;
+      dirty = true;
+      reload_tweets();
+  }
+}
+
+var trackbar = new Trackbar(0, 20, 350, trackBarChange);
+
+var holder = document.getElementById("trackbarHolder");
+holder.appendChild(trackbar.GetContainer());
+trackbar.StartListening();
+
+/*********************************
+    d3 graph
+*********************************/
+
+var nodeArray = [];
+var edgeArray = [];
+
+var h = 350,
+    w = 350;
+
+var svg = d3.select("#graph-layout").append("svg")
+    .attr("width", w)
+    .attr("height", h);
+
+var force = d3.layout.force()
+      .charge(-150)
+      .friction(0.6)
+      .gravity(0.02)
+      .linkDistance(function(d, i) { return d.source.r + d.target.r; })
+      .nodes(nodeArray)
+      .links(edgeArray)
+      .size([w, h]);
+    
+force.on("tick", function() {
+  
+    svg.selectAll(".node")
+        .attr("cx", function(d) { return d.x = Math.max(d.r, Math.min(w - d.r, d.x)); })
+        .attr("cy", function(d) { return d.y = Math.max(d.r, Math.min(h - d.r, d.y)); });
+
+    svg.selectAll(".link")
+        .attr("x1", function(d) { return d.source.x; })
+        .attr("y1", function(d) { return d.source.y; })
+        .attr("x2", function(d) { return d.target.x; })
+        .attr("y2", function(d) { return d.target.y; });
+
+  svg.selectAll(".node").attr("transform", function(d) { return "translate(" + d.x + "," + d.y + ")"; });
+  
+});
+
+function update_graph () {
+  
+  svg.selectAll(".node").remove();
+  
+  var node = svg.selectAll(".node")
+      .data(nodeArray)
+    .enter().append("g")
+      .attr("class", "node")
+      .attr("cx", function(d) { return d.x = Math.max(d.r, Math.min(w - d.r, d.x)); })
+      .attr("cy", function(d) { return d.y = Math.max(d.r, Math.min(h - d.r, d.y)); })
+      .call(force.drag);
+      
+  node.append("title")
+       .text(function(d) { return d.name + " (" + d.count + ")"; });
+
+  node.append("svg:circle")
+      .style("fill", function(d) { return "#000"; } )
+      .style("fill-opacity", function(d) {return (htManager.selected && d.name==htManager.selected.hashtag) ? 0.3 : 0.15})
+      .attr("r", function(d) { return d.r; })
+      .on("mouseover", function(d,i) { htManager.mouseover(d); })
+      .on("mouseout", function(d,i) { htManager.mouseout(d); })
+      .on("click", function(d,i) { htManager.click(d); } );
+
+  node.append("text")
+      .attr("dx", 0)
+      .attr("dy", function(d) { return d.r/8;})
+      .attr("text-anchor", "middle")
+      .style("font-size", function(d) { return d.r/3; })
+      .style("fill", "#000")
+      .text(function(d) { return d.name });
+};
+
+/*********************************/
+
+
+function show_tweets(hashtag) {
+    partweets = d3.select("#tweets").selectAll("#tweets > div")[0];
+    for (i=0; i<partweets.length; i++) {
+        found = false;
+        s = partweets[i];
+        
+        for (j=0; j<hashtag.tweets.length; j++) {
+            if (s.id == hashtag.tweets[j]) {
+                found = true;
+            }
+        }
+        
+        if (!found) {
+            s.style.height = 0;
+            s.style.visibility = "hidden";
+        }
+    }
+}
+
+
+name2id = {}
+node_count = nodeArray.length;
+edges = {}
+
+
+var tweets = {};
+var hashtags = {};
+var enabled_tweets = {};
+var dirty = false;
+var hashtag_status = {};
+var status_hashtag = {}
+var enabled_hashtags = [];
+var hashtag_edges = {}
+
+function format_tweet(tweet) {
+    return new String(tweet_html)
+        .replace("\$text\$", tweet.text)
+        .replace("\$screen_name\$", tweet.from_user)
+        .replace("\$screen_name\$", tweet.from_user)
+        .replace("\$name\$", tweet.name)
+        .replace("\$name\$", tweet.name)
+        .replace("\$profile_image_url\$", tweet.profile_image_url);
+}
+
+function reload_tweets() {
+    if (dirty && htManager.selected === false) {
+    
+        dirty = false;
+        
+        l = [];
+        for (k in hashtags) {
+            l.push(hashtags[k]);
+        }
+        
+        l.sort(function(a,b) { return b.count - a.count } );
+        enabled_hashtags = [];
+        
+        for (var i=0; i<l.length; i++) {
+            if (i>=nrTopics) break;
+            enabled_hashtags.push(l[i].hashtag);
+        }
+    
+        enabled_tweets = {};
+    
+        for (var i=0; i<enabled_hashtags.length; i++) {
+            hs = hashtag_status[enabled_hashtags[i]];
+            if (hs)
+                for (var j=0; j<hs.length; j++) {
+                    if (j>=2) break;
+                    id = hs[j];
+                    if (enabled_tweets[id]) continue;
+                    var tweet = tweets[id];
+                    enabled_tweets[id] = tweet;
+                }
+        }
+        
+        tlist = []
+        for (var key in enabled_tweets) {
+            enabled_tweet = enabled_tweets[key];
+            tlist.push(enabled_tweet);
+            
+            // create html element for entabled tweets
+            if (!enabled_tweet.html) {
+                enabled_tweet.html = format_tweet(enabled_tweet);
+            }
+        }
+        
+        d3.select("#tweets").selectAll("#tweets > div").remove();
+        selectDIV = d3.select("#tweets");
+        selectDIV.selectAll("div")
+             .data(tlist)
+             .enter()
+             .append("div")
+             .attr("id", function(d){return d.id;})
+             .html(function(d){ return d.html; });
+        
+        force.stop();
+        nodeArray.length = 0;
+        edgeArray.length = 0;
+        for (var i=0; i<enabled_hashtags.length; i++) {
+            hashtag = enabled_hashtags[i];
+            nodeArray.push(hashtags[hashtag]);
+            edges = hashtag_edges[hashtag];
+            if (edges) {
+                for (var k=i+1; k<enabled_hashtags.length; k++) {
+                    if (enabled_hashtags[k] in edges) {
+                        edgeArray.push({"source": i, "target": k});
+                    }
+                }
+            }
+        }
+        force.start();
+        update_graph();
+        
+    }
+}
+
+setInterval(reload_tweets, 500);
+
+/*********************************
+    message handlers
+*********************************/
+
+function processHashtag(o) {
+
+    o["size"] = o.count*50
+    o["name"] = o.hashtag;
+    o["k"] = 5;
+    o["state"] = "S";
+    o["r"] = 6*Math.log(o.size);
+    
+    if (hashtags[o.hashtag]) {
+        o.x = hashtags[o.hashtag].x;
+        o.y = hashtags[o.hashtag].y;
+    }
+    
+    hashtags[o.hashtag] = o;
+    
+    reload_tweets();
+    dirty = true;
+}
+
+function processHashtagStatus(o) {
+    if (hashtag_status[o.hashtag]) {
+        hs = hashtag_status[o.hashtag];
+        hs.push(o.status);
+    } else {
+        hashtag_status[o.hashtag] = [o.status];
+    }
+    if (status_hashtag[o.status]) {
+        sh = status_hashtag[o.status];
+        sh.push(o.hashtag);
+    } else {
+        status_hashtag[o.status] = [o.hashtag];
+    }
+}
+
+function processTweetCount(o) {
+    tweets[o.id].count = o.count;
+    sh = status_hashtag[o.id];
+    if (sh)
+        for (var i=0; i<sh.length; i++) {
+            hs = hashtag_status[sh[i]];
+            if (hs.length > 1)
+                hs.sort(function(a,b) { return tweets[b].count - tweets[a].count } );
+        }
+}
+
+function countDecrease() {
+    console.log("Decreasing hashtag count");
+    for (k in hashtags) {
+        o = hashtags[k];
+        o.count -= 1;
+        o["size"] = o.count*50
+        o["r"] = 6*Math.log(o.size);
+    }
+}
+
+function processEdge(o) {
+    if ('undefined' === typeof hashtag_edges[o.source]) hashtag_edges[o.source] = {};
+    hashtag_edges[o.source][o.target] = true;
+    
+    if ('undefined' === typeof hashtag_edges[o.target]) hashtag_edges[o.target] = {};
+    hashtag_edges[o.source][o.source] = true;
+}
+
+function processTitleMessage(o) {
+    d3.select("#title").text(o.value);
+}
+
+function processMessage(data) {
+    //console.log("RECV:", data);
+    o = JSON.parse(data);
+    
+    var type = o.type;
+    switch (type) {
+        case 'tweet':
+            tweets[o.id] = o;
+            break;
+        case 'tweet_count':
+            processTweetCount(o);
+            break;
+        case 'hashtag':
+            processHashtag(o);
+            break;
+        case 'hastag_status':
+            processHashtagStatus(o);
+            break;
+        case 'count_decrease':
+            countDecrease();
+            break;
+        case 'title_message':
+            processTitleMessage(o);
+            break;
+    }
+}
+
+/*********************************
+    websockets
+*********************************/
+
+var scheme = window.location.protocol == 'https:' ? 'wss://' : 'ws://';
+var socketAddress = scheme + window.location.hostname + ':8880/whatshot';
+
+function connect(callback) {
+    var socket = null;
+    
+    if ('WebSocket' in window) {
+        socket = new WebSocket(socketAddress);
+    } 
+    else if ('MozWebSocket' in window) {
+        socket = new MozWebSocket(socketAddress);
+    } 
+    else {
+        alert("Browser does not support WebSocket");
+        return null;
+    }
+
+    socket.onmessage = function(event) {
+        processMessage(event.data);
+    };
+
+    socket.onopen = callback || function(event) {};
+    
+    socket.onerror = function(e) { console.log(e); d3.select("#title").text(d3.select("#title").text() + " (Error)"); };
+    socket.onclose = function(event) {d3.select("#title").text(d3.select("#title").text() + " (Closed)"); };
+    
+    return socket;
+}
+
+var manager = {
+    send : function(data) {
+        socket.send(JSON.stringify(data)); 
+        console.log("SEND: " + JSON.stringify(data));           
+    }
+};
+
+var socket = connect(function() { manager.send({action: "connect", screen_name: screen_name}); });     
+
+</script>
+
+</body>
+</html>
